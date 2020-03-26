@@ -4,44 +4,25 @@ import {
   StyleSheet,
   View,
   Text,
+  Platform,
   Image,
+  Dimensions,
   TouchableOpacity,
   BackHandler,
-  FlatList,
-  Alert,
-  TextInput,
 } from 'react-native';
-import Yaml from 'js-yaml';
-import RNFetchBlob from 'rn-fetch-blob';
-import {
-  Menu,
-  MenuOptions,
-  MenuOption,
-  MenuTrigger,
-  renderers,
-  withMenuContext,
-} from 'react-native-popup-menu';
-const { SlideInMenu } = renderers;
-import { GetStoreData, SetStoreData } from '../helpers/General';
+import { WebView } from 'react-native-webview';
+import packageJson from '../../package.json';
+
 import colors from '../constants/colors';
 import backArrow from './../assets/images/backArrow.png';
-import closeIcon from './../assets/images/closeIcon.png';
-import saveIcon from './../assets/images/saveIcon.png';
 import languages from './../locales/languages';
+import licenses from './../assets/LICENSE.json';
 
-const authoritiesListURL =
-  'https://raw.githubusercontent.com/tripleblindmarket/safe-places/develop/healthcare-authorities.yaml';
+const width = Dimensions.get('window').width;
 
-class SettingsScreen extends Component {
+class LicensesScreen extends Component {
   constructor(props) {
     super(props);
-    this.state = {
-      selectedAuthorities: [],
-      displayUrlEntry: 'none',
-      urlEntryInProgress: false,
-      urlText: '',
-      authoritiesList: [],
-    };
   }
 
   backToMain() {
@@ -55,134 +36,28 @@ class SettingsScreen extends Component {
 
   componentDidMount() {
     BackHandler.addEventListener('hardwareBackPress', this.handleBackPress);
-    this.fetchAuthoritiesList();
-
-    // Update user settings state from async storage
-    GetStoreData('AUTHORITY_SOURCE_SETTINGS', false).then(result => {
-      this.setState({
-        selectedAuthorities: result,
-      });
-    });
   }
 
   componentWillUnmount() {
     BackHandler.removeEventListener('hardwareBackPress', this.handleBackPress);
   }
 
-  fetchAuthoritiesList() {
-    try {
-      RNFetchBlob.config({
-        // add this option that makes response data to be stored as a file,
-        // this is much more performant.
-        fileCache: true,
-      })
-        .fetch('GET', authoritiesListURL, {
-          //some headers ..
-        })
-        .then(result => {
-          RNFetchBlob.fs.readFile(result.path(), 'utf8').then(list => {
-            // If unable to load the file, change state to display error in appropriate menu
-            let parsedFile = Yaml.safeLoad(list).Authorities;
-            {
-              parsedFile !== undefined
-                ? this.setState({
-                    authoritiesList: parsedFile,
-                  })
-                : this.setState({
-                    authoritiesList: [
-                      {
-                        'Unable to load authorities list': [{ url: 'No URL' }],
-                      },
-                    ],
-                  });
-            }
-          });
-        });
-    } catch (error) {
-      console.log(error);
+  getLicenses() {
+    var result = '<html>';
+    result +=
+      '<style>  html, body { font-size: 40px; margin: 0; padding: 0; } </style>';
+    result += '<body>';
+
+    for (var i = 0; i < licenses.licenses.length; i++) {
+      var element = licenses.licenses[i];
+
+      result += '<B>' + element.name + '</B><P>';
+      result += element.text.replace(/\n/g, '<br/>');
+      result += '<hr/>';
     }
-  }
+    result += '</body></html>';
 
-  // Add selected authorities to state, for display in the FlatList
-  addAuthorityToState(authority) {
-    let authorityIndex = this.state.authoritiesList.findIndex(
-      x => Object.keys(x)[0] === authority,
-    );
-
-    if (
-      this.state.selectedAuthorities.findIndex(x => x.key === authority) === -1
-    ) {
-      this.setState({
-        selectedAuthorities: this.state.selectedAuthorities.concat({
-          key: authority,
-          url: this.state.authoritiesList[authorityIndex][authority][0].url,
-        }),
-      });
-      // Add current settings state to async storage.
-      SetStoreData('AUTHORITY_SOURCE_SETTINGS', this.state.selectedAuthorities);
-    } else {
-      console.log('Not adding the duplicate to sources list');
-    }
-  }
-
-  addCustomUrlToState(urlInput) {
-    console.log('attempting to add custom URL to state');
-
-    if (urlInput === '') {
-      console.log('URL input was empty, not saving');
-    } else if (
-      this.state.selectedAuthorities.findIndex(x => x.url === urlInput) != -1
-    ) {
-      console.log('URL input was duplicate, not saving');
-    } else {
-      this.setState({
-        selectedAuthorities: this.state.selectedAuthorities.concat({
-          key: urlInput,
-          url: urlInput,
-        }),
-        displayUrlEntry: 'none',
-        urlEntryInProgress: false,
-      });
-      // Add current settings state to async storage.
-      SetStoreData('AUTHORITY_SOURCE_SETTINGS', this.state.selectedAuthorities);
-    }
-  }
-
-  removeAuthorityFromState(authority) {
-    console.log('State upon element removal:');
-    console.log(this.state.selectedAuthorities);
-
-    Alert.alert(
-      languages.t('label.authorities_removal_alert_title'),
-      languages.t('label.authorities_removal_alert_desc'),
-      [
-        {
-          text: languages.t('label.authorities_removal_alert_cancel'),
-          onPress: () => console.log('Cancel Pressed'),
-          style: 'cancel',
-        },
-        {
-          text: languages.t('label.authorities_removal_alert_proceed'),
-          onPress: () => {
-            let removalIndex = this.state.selectedAuthorities.indexOf(
-              authority,
-            );
-            this.state.selectedAuthorities.splice(removalIndex, 1);
-
-            this.setState({
-              selectedAuthorities: this.state.selectedAuthorities,
-            });
-
-            // Add current settings state to async storage.
-            SetStoreData(
-              'AUTHORITY_SOURCE_SETTINGS',
-              this.state.selectedAuthorities,
-            );
-          },
-        },
-      ],
-      { cancelable: false },
-    );
+    return result;
   }
 
   render() {
@@ -194,142 +69,45 @@ class SettingsScreen extends Component {
             onPress={() => this.backToMain()}>
             <Image style={styles.backArrow} source={backArrow} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>
-            {languages.t('label.settings_title')}
-          </Text>
+          <Text style={styles.headerTitle}>Licenses</Text>
         </View>
 
         <View style={styles.main}>
           <Text style={styles.headerTitle}>
-            {languages.t('label.authorities_title')}
+            {languages.t('label.private_kit')}
           </Text>
-          <Text style={styles.sectionDescription}>
-            {languages.t('label.authorities_desc')}
-          </Text>
+
+          <View style={styles.row}>
+            <Text style={styles.valueName}>Version: </Text>
+            <Text style={styles.value}>{packageJson.version}</Text>
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.valueName}>OS: </Text>
+            <Text style={styles.value}>
+              {Platform.OS + ' v' + Platform.Version}
+            </Text>
+          </View>
+
+          <View style={styles.row}>
+            <Text style={styles.valueName}>Screen Resolution: </Text>
+            <Text style={styles.value}>
+              {' '}
+              {Math.trunc(Dimensions.get('screen').width) +
+                ' x ' +
+                Math.trunc(Dimensions.get('screen').height)}
+            </Text>
+          </View>
         </View>
 
-        <View style={styles.listContainer}>
-          {Object.keys(this.state.selectedAuthorities).length == 0 ? (
-            <>
-              <Text style={(styles.sectionDescription, { color: '#dd0000' })}>
-                {languages.t('label.authorities_no_sources')}
-              </Text>
-              <View
-                style={[
-                  styles.flatlistRowView,
-                  { display: this.state.displayUrlEntry },
-                ]}>
-                <TextInput
-                  onChangeText={text => {
-                    this.setState({
-                      urlText: text,
-                    });
-                  }}
-                  value={this.state.urlText}
-                  autoFocus={this.state.urlEntryInProgress}
-                  style={[styles.item, styles.textInput]}
-                  placeholder={languages.t(
-                    'label.authorities_input_placeholder',
-                  )}
-                  onSubmitEditing={() =>
-                    this.addCustomUrlToState(this.state.urlText)
-                  }
-                />
-                <TouchableOpacity
-                  onPress={() => this.addCustomUrlToState(this.state.urlText)}>
-                  <Image source={saveIcon} style={styles.saveIcon} />
-                </TouchableOpacity>
-              </View>
-            </>
-          ) : (
-            <>
-              <View
-                style={[
-                  styles.flatlistRowView,
-                  { display: this.state.displayUrlEntry },
-                ]}>
-                <TextInput
-                  onChangeText={text => {
-                    this.setState({
-                      urlText: text,
-                    });
-                  }}
-                  value={this.state.urlText}
-                  autoFocus={this.state.urlEntryInProgress}
-                  style={[styles.item, styles.textInput]}
-                  placeholder='Paste your URL here'
-                  onSubmitEditing={() =>
-                    this.addCustomUrlToState(this.state.urlText)
-                  }
-                />
-                <TouchableOpacity
-                  onPress={() => this.addCustomUrlToState(this.state.urlText)}>
-                  <Image source={saveIcon} style={styles.saveIcon} />
-                </TouchableOpacity>
-              </View>
-              <FlatList
-                data={this.state.selectedAuthorities}
-                renderItem={({ item }) => (
-                  <View style={styles.flatlistRowView}>
-                    <Text style={styles.item}>{item.key}</Text>
-                    <TouchableOpacity
-                      onPress={() => this.removeAuthorityFromState(item)}>
-                      <Image source={closeIcon} style={styles.closeIcon} />
-                    </TouchableOpacity>
-                  </View>
-                )}
-              />
-            </>
-          )}
+        <View style={{ flex: 4, paddingLeft: 20, paddingRight: 15 }}>
+          <WebView
+            originWhitelist={['*']}
+            source={{
+              html: this.getLicenses(),
+            }}
+            style={{ marginTop: 15 }}
+          />
         </View>
-
-        <Menu
-          name='AuthoritiesMenu'
-          renderer={SlideInMenu}
-          style={{ flex: 1, justifyContent: 'center' }}>
-          <MenuTrigger>
-            <TouchableOpacity
-              style={styles.startLoggingButtonTouchable}
-              onPress={() =>
-                this.props.ctx.menuActions.openMenu('AuthoritiesMenu')
-              }
-              disabled={this.state.urlEditInProgress}>
-              <Text style={styles.startLoggingButtonText}>
-                {languages.t('label.authorities_add_button_label')}
-              </Text>
-            </TouchableOpacity>
-          </MenuTrigger>
-          <MenuOptions>
-            {this.state.authoritiesList === undefined
-              ? null
-              : this.state.authoritiesList.map(item => {
-                  let name = Object.keys(item)[0];
-                  let key = this.state.authoritiesList.indexOf(item);
-
-                  return (
-                    <MenuOption
-                      key={key}
-                      onSelect={() => {
-                        this.addAuthorityToState(name);
-                      }}
-                      disabled={this.state.authoritiesList.length === 1}>
-                      <Text style={styles.menuOptionText}>{name}</Text>
-                    </MenuOption>
-                  );
-                })}
-            <MenuOption
-              onSelect={() => {
-                this.setState({
-                  displayUrlEntry: 'flex',
-                  urlEntryInProgress: true,
-                });
-              }}>
-              <Text style={styles.menuOptionText}>
-                {languages.t('label.authorities_add_url')}
-              </Text>
-            </MenuOption>
-          </MenuOptions>
-        </Menu>
       </SafeAreaView>
     );
   }
@@ -340,28 +118,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     flexDirection: 'column',
-    justifyContent: 'space-between',
     color: colors.PRIMARY_TEXT,
     backgroundColor: colors.WHITE,
   },
   main: {
-    flex: 2,
+    flex: 1,
     flexDirection: 'column',
     textAlignVertical: 'top',
     // alignItems: 'center',
     padding: 20,
     width: '96%',
     alignSelf: 'center',
-  },
-  listContainer: {
-    flex: 3,
-    flexDirection: 'column',
-    textAlignVertical: 'top',
-    justifyContent: 'flex-start',
-    padding: 20,
-    width: '96%',
-    alignSelf: 'center',
-    backgroundColor: colors.WHITE,
   },
   row: {
     flex: 1,
@@ -377,28 +144,13 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '200',
   },
-  startLoggingButtonTouchable: {
-    borderRadius: 12,
-    backgroundColor: '#665eff',
-    height: 52,
-    alignSelf: 'center',
-    width: '79%',
-    justifyContent: 'center',
-  },
-  startLoggingButtonText: {
-    fontFamily: 'OpenSans-Bold',
-    fontSize: 14,
-    lineHeight: 19,
-    letterSpacing: 0,
-    textAlign: 'center',
-    color: '#ffffff',
-  },
+
   buttonTouchable: {
     borderRadius: 12,
     backgroundColor: '#665eff',
     height: 52,
     alignSelf: 'center',
-    width: '79%',
+    width: width * 0.7866,
     marginTop: 30,
     justifyContent: 'center',
   },
@@ -430,6 +182,7 @@ const styles = StyleSheet.create({
   },
   headerContainer: {
     flexDirection: 'row',
+    height: 60,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(189, 195, 199,0.6)',
     alignItems: 'center',
@@ -451,40 +204,6 @@ const styles = StyleSheet.create({
     overflow: 'scroll',
     fontFamily: 'OpenSans-Regular',
   },
-  menuOptionText: {
-    fontFamily: 'OpenSans-Regular',
-    fontSize: 14,
-    padding: 10,
-  },
-  flatlistRowView: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingTop: 7,
-    paddingBottom: 5,
-    borderBottomWidth: 1,
-    borderColor: '#999999',
-  },
-  item: {
-    fontFamily: 'OpenSans-Regular',
-    fontSize: 16,
-    padding: 10,
-    maxWidth: '90%',
-  },
-  closeIcon: {
-    width: 15,
-    height: 15,
-    opacity: 0.5,
-    marginTop: 14,
-  },
-  saveIcon: {
-    width: 17,
-    height: 17,
-    opacity: 0.5,
-    marginTop: 14,
-  },
-  textInput: {
-    marginLeft: 10,
-  },
 });
 
-export default withMenuContext(SettingsScreen);
+export default LicensesScreen;
