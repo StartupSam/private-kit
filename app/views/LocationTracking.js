@@ -112,6 +112,10 @@ class LocationTracking extends Component {
   notifications() {
     this.props.navigation.navigate('NotificationScreen', {});
   }
+  
+  settings() {
+    this.props.navigation.navigate('SettingsScreen', {});
+  }
 
   setOptOut = () => {
     LocationServices.stop(this.props.navigation);
@@ -143,6 +147,12 @@ class LocationTracking extends Component {
               />
             </MenuTrigger>
             <MenuOptions>
+              <MenuOption
+                onSelect={() => {
+                  this.settings();
+                }}>
+                <Text style={styles.menuOptionText}>Settings</Text>
+              </MenuOption>
               <MenuOption
                 onSelect={() => {
                   this.licenses();
