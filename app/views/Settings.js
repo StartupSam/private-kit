@@ -9,6 +9,7 @@ import {
   BackHandler,
   FlatList,
   Alert,
+  TextInput,
 } from 'react-native';
 import Yaml from 'js-yaml';
 import RNFetchBlob from 'rn-fetch-blob';
@@ -24,14 +25,16 @@ const { SlideInMenu } = renderers;
 import colors from '../constants/colors';
 import backArrow from './../assets/images/backArrow.png';
 import closeIcon from './../assets/images/closeIcon.png';
+import saveIcon from './../assets/images/saveIcon.png';
 import languages from './../locales/languages';
 
 const authoritiesListURL =
-  'https://github.com/tripleblindmarket/safe-places/blob/develop/healthcare-authorities.yaml';
+  'https://raw.githubusercontent.com/tripleblindmarket/safe-places/develop/healthcare-authorities.yaml';
 
 // Temporary test object with authorities data
-const authoritiesList = {
-  "Steve's Example Health Authority": {
+/*
+let authoritiesList = {
+  "Sam's Example Health Authority": {
     url:
       'https://raw.githack.com/tripleblindmarket/safe-places/develop/examples/safe-paths.json',
   },
@@ -39,13 +42,17 @@ const authoritiesList = {
     url:
       'https://raw.githack.com/tripleblindmarket/safe-places/develop/examples/anotherlocale-safe-paths.json',
   },
-};
+}; */
 
 class SettingsScreen extends Component {
   constructor(props) {
     super(props);
     this.state = {
       selectedAuthorities: [],
+      displayUrlEntry: 'none',
+      urlEntryInProgress: false,
+      urlText: '',
+      authoritiesList: [],
     };
   }
 
@@ -60,29 +67,42 @@ class SettingsScreen extends Component {
 
   componentDidMount() {
     BackHandler.addEventListener('hardwareBackPress', this.handleBackPress);
+    this.fetchAuthoritiesList();
   }
 
   componentWillUnmount() {
     BackHandler.removeEventListener('hardwareBackPress', this.handleBackPress);
   }
 
-  // This function isn't working - will focus on UI function for now and
-  // leave this for someone else to connect to live data
   fetchAuthoritiesList() {
     try {
-      RNFetchBlob.fetch('GET', authoritiesListURL).then(res => {
-        // the temp file path
-        console.log(res);
-        console.log('The file saved to ', res.path());
-        RNFetchBlob.fs.Yaml.safeLoad(res.path(), 'utf8').then(records => {
-          // delete the file first using flush
-          res.flush();
-          this.parseCSV(records).then(parsedRecords => {
-            console.log(parsedRecords);
-            console.log(Object.keys(parsedRecords).length);
+      RNFetchBlob.config({
+        // add this option that makes response data to be stored as a file,
+        // this is much more performant.
+        fileCache: true,
+      })
+        .fetch('GET', authoritiesListURL, {
+          //some headers ..
+        })
+        .then(result => {
+          RNFetchBlob.fs.readFile(result.path(), 'utf8').then(list => {
+            // If unable to load the file, change state to display error in appropriate menu
+            let parsedFile = Yaml.safeLoad(list).Authorities;
+            {
+              parsedFile !== undefined
+                ? this.setState({
+                    authoritiesList: parsedFile,
+                  })
+                : this.setState({
+                    authoritiesList: [
+                      {
+                        'Unable to load authorities list': [{ url: 'No URL' }],
+                      },
+                    ],
+                  });
+            }
           });
         });
-      });
     } catch (error) {
       console.log(error);
     }
@@ -90,18 +110,42 @@ class SettingsScreen extends Component {
 
   // Add selected authorities to state, for display in the FlatList
   addAuthorityToState(authority) {
+    let authorityIndex = this.state.authoritiesList.findIndex(
+      x => Object.keys(x)[0] === authority,
+    );
+
     if (
       this.state.selectedAuthorities.findIndex(x => x.key === authority) === -1
     ) {
-      console.log(this.state.selectedAuthorities);
       this.setState({
         selectedAuthorities: this.state.selectedAuthorities.concat({
           key: authority,
-          url: authoritiesList[authority].url,
+          url: this.state.authoritiesList[authorityIndex][authority][0].url,
         }),
       });
     } else {
       console.log('Not adding the duplicate to sources list');
+    }
+  }
+
+  addCustomUrlToState(urlInput) {
+    console.log('attempting to add custom URL to state');
+
+    if (urlInput === '') {
+      console.log('URL input was empty, not saving');
+    } else if (
+      this.state.selectedAuthorities.findIndex(x => x.url === urlInput) != -1
+    ) {
+      console.log('URL input was duplicate, not saving');
+    } else {
+      this.setState({
+        selectedAuthorities: this.state.selectedAuthorities.concat({
+          key: urlInput,
+          url: urlInput,
+        }),
+        displayUrlEntry: 'none',
+        urlEntryInProgress: false,
+      });
     }
   }
 
@@ -158,16 +202,61 @@ class SettingsScreen extends Component {
 
         <View style={styles.listContainer}>
           {Object.keys(this.state.selectedAuthorities).length == 0 ? (
-            <Text style={(styles.sectionDescription, { color: '#dd0000' })}>
-              {languages.t('label.authorities_no_sources')}
-            </Text>
+            <>
+              <Text style={(styles.sectionDescription, { color: '#dd0000' })}>
+                {languages.t('label.authorities_no_sources')}
+              </Text>
+              <View
+                style={[
+                  styles.flatlistRowView,
+                  { display: this.state.displayUrlEntry },
+                ]}>
+                <TextInput
+                  onChangeText={text => {
+                    this.setState({
+                      urlText: text,
+                    });
+                  }}
+                  value={this.state.urlText}
+                  autoFocus={this.state.urlEntryInProgress}
+                  style={[styles.item, styles.textInput]}
+                  placeholder={languages.t(
+                    'label.authorities_input_placeholder',
+                  )}
+                  onSubmitEditing={() =>
+                    this.addCustomUrlToState(this.state.urlText)
+                  }
+                />
+                <TouchableOpacity
+                  onPress={() => this.addCustomUrlToState(this.state.urlText)}>
+                  <Image source={saveIcon} style={styles.saveIcon} />
+                </TouchableOpacity>
+              </View>
+            </>
           ) : (
             <>
-              <View style={styles.flatlistRowView}>
-                <Text style={styles.item}>Text input here</Text>
+              <View
+                style={[
+                  styles.flatlistRowView,
+                  { display: this.state.displayUrlEntry },
+                ]}>
+                <TextInput
+                  onChangeText={text => {
+                    this.setState({
+                      urlText: text,
+                    });
+                  }}
+                  value={this.state.urlText}
+                  autoFocus={this.state.urlEntryInProgress}
+                  style={[styles.item, styles.textInput]}
+                  placeholder='Paste your URL here'
+                  onSubmitEditing={() =>
+                    this.addCustomUrlToState(this.state.urlText)
+                  }
+                />
                 <TouchableOpacity
-                  onPress={() => this.addAuthorityToState('test')}>
-                  <Image source={closeIcon} style={styles.closeIcon} />
+                  onPress={() => this.addCustomUrlToState(this.state.urlText)}>
+                  <Image source={saveIcon} style={styles.saveIcon} />
                 </TouchableOpacity>
               </View>
               <FlatList
@@ -195,39 +284,37 @@ class SettingsScreen extends Component {
               style={styles.startLoggingButtonTouchable}
               onPress={() =>
                 this.props.ctx.menuActions.openMenu('AuthoritiesMenu')
-              }>
+              }
+              disabled={this.state.urlEditInProgress}>
               <Text style={styles.startLoggingButtonText}>
                 {languages.t('label.authorities_add_button_label')}
               </Text>
             </TouchableOpacity>
           </MenuTrigger>
           <MenuOptions>
-            {Object.keys(authoritiesList).map(key => {
-              return (
-                <MenuOption
-                  key={key}
-                  onSelect={() => {
-                    this.addAuthorityToState(key);
-                  }}>
-                  <Text style={styles.menuOptionText}>{key}</Text>
-                </MenuOption>
-              );
-            })}
+            {this.state.authoritiesList === undefined
+              ? null
+              : this.state.authoritiesList.map(item => {
+                  let name = Object.keys(item)[0];
+                  let key = this.state.authoritiesList.indexOf(item);
+
+                  return (
+                    <MenuOption
+                      key={key}
+                      onSelect={() => {
+                        this.addAuthorityToState(name);
+                      }}
+                      disabled={this.state.authoritiesList.length === 1}>
+                      <Text style={styles.menuOptionText}>{name}</Text>
+                    </MenuOption>
+                  );
+                })}
             <MenuOption
               onSelect={() => {
-                Alert.alert(
-                  languages.t('label.authorities_coming_soon_title'),
-                  languages.t('label.authorities_coming_soon_desc'),
-                  [
-                    {
-                      text: languages.t('label.authorities_done'),
-                      onPress: () => {
-                        console.log('Tried to add custom URL data source');
-                      },
-                    },
-                  ],
-                  { cancelable: false },
-                );
+                this.setState({
+                  displayUrlEntry: 'flex',
+                  urlEntryInProgress: true,
+                });
               }}>
               <Text style={styles.menuOptionText}>
                 {languages.t('label.authorities_add_url')}
@@ -266,6 +353,7 @@ const styles = StyleSheet.create({
     padding: 20,
     width: '96%',
     alignSelf: 'center',
+    backgroundColor: colors.WHITE,
   },
   row: {
     flex: 1,
@@ -379,6 +467,15 @@ const styles = StyleSheet.create({
     height: 15,
     opacity: 0.5,
     marginTop: 14,
+  },
+  saveIcon: {
+    width: 17,
+    height: 17,
+    opacity: 0.5,
+    marginTop: 14,
+  },
+  textInput: {
+    marginLeft: 10,
   },
 });
 
