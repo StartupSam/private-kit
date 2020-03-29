@@ -9,7 +9,6 @@ import {
   BackHandler,
   FlatList,
   Alert,
-  TextInput,
 } from 'react-native';
 import Yaml from 'js-yaml';
 import RNFetchBlob from 'rn-fetch-blob';
@@ -25,7 +24,6 @@ const { SlideInMenu } = renderers;
 import colors from '../constants/colors';
 import backArrow from './../assets/images/backArrow.png';
 import closeIcon from './../assets/images/closeIcon.png';
-import saveIcon from './../assets/images/saveIcon.png';
 import languages from './../locales/languages';
 
 const authoritiesListURL =
@@ -48,9 +46,6 @@ class SettingsScreen extends Component {
     super(props);
     this.state = {
       selectedAuthorities: [],
-      displayUrlEntry: 'none',
-      urlEntryInProgress: false,
-      urlText: '',
     };
   }
 
@@ -110,29 +105,6 @@ class SettingsScreen extends Component {
     }
   }
 
-  addCustomUrlToState(urlInput) {
-    console.log('attempting to add custom URL to state');
-
-    if (urlInput === '') {
-      console.log('URL input was empty, not saving');
-    } else if (
-      this.state.selectedAuthorities.findIndex(x => x.url === urlInput) != -1
-    ) {
-      console.log('URL input was duplicate, not saving');
-    } else {
-      this.setState({
-        selectedAuthorities: this.state.selectedAuthorities.concat({
-          key: urlInput,
-          url: urlInput,
-        }),
-        displayUrlEntry: 'none',
-        urlEntryInProgress: false,
-      });
-      console.log('URL add apparently succeeded!');
-      console.log(this.state.selectedAuthorities);
-    }
-  }
-
   removeAuthorityFromState(authority) {
     Alert.alert(
       languages.t('label.authorities_removal_alert_title'),
@@ -186,61 +158,16 @@ class SettingsScreen extends Component {
 
         <View style={styles.listContainer}>
           {Object.keys(this.state.selectedAuthorities).length == 0 ? (
-            <>
-              <Text style={(styles.sectionDescription, { color: '#dd0000' })}>
-                {languages.t('label.authorities_no_sources')}
-              </Text>
-              <View
-                style={[
-                  styles.flatlistRowView,
-                  { display: this.state.displayUrlEntry },
-                ]}>
-                <TextInput
-                  onChangeText={text => {
-                    this.setState({
-                      urlText: text,
-                    });
-                    console.log(this.state.urlText);
-                  }}
-                  value={this.state.urlText}
-                  autoFocus={this.state.urlEntryInProgress}
-                  style={[styles.item, styles.textInput]}
-                  placeholder='Paste your URL here'
-                  onSubmitEditing={() =>
-                    this.addCustomUrlToState(this.state.urlText)
-                  }
-                />
-                <TouchableOpacity
-                  onPress={() => this.addCustomUrlToState(this.state.urlText)}>
-                  <Image source={saveIcon} style={styles.saveIcon} />
-                </TouchableOpacity>
-              </View>
-            </>
+            <Text style={(styles.sectionDescription, { color: '#dd0000' })}>
+              {languages.t('label.authorities_no_sources')}
+            </Text>
           ) : (
             <>
-              <View
-                style={[
-                  styles.flatlistRowView,
-                  { display: this.state.displayUrlEntry },
-                ]}>
-                <TextInput
-                  onChangeText={text => {
-                    this.setState({
-                      urlText: text,
-                    });
-                    console.log(this.state.urlText);
-                  }}
-                  value={this.state.urlText}
-                  autoFocus={this.state.urlEntryInProgress}
-                  style={[styles.item, styles.textInput]}
-                  placeholder='Paste your URL here'
-                  onSubmitEditing={() =>
-                    this.addCustomUrlToState(this.state.urlText)
-                  }
-                />
+              <View style={styles.flatlistRowView}>
+                <Text style={styles.item}>Text input here</Text>
                 <TouchableOpacity
-                  onPress={() => this.addCustomUrlToState(this.state.urlText)}>
-                  <Image source={saveIcon} style={styles.saveIcon} />
+                  onPress={() => this.addAuthorityToState('test')}>
+                  <Image source={closeIcon} style={styles.closeIcon} />
                 </TouchableOpacity>
               </View>
               <FlatList
@@ -268,8 +195,7 @@ class SettingsScreen extends Component {
               style={styles.startLoggingButtonTouchable}
               onPress={() =>
                 this.props.ctx.menuActions.openMenu('AuthoritiesMenu')
-              }
-              disabled={this.state.urlEditInProgress}>
+              }>
               <Text style={styles.startLoggingButtonText}>
                 {languages.t('label.authorities_add_button_label')}
               </Text>
@@ -289,10 +215,19 @@ class SettingsScreen extends Component {
             })}
             <MenuOption
               onSelect={() => {
-                this.setState({
-                  displayUrlEntry: 'flex',
-                  urlEntryInProgress: true,
-                });
+                Alert.alert(
+                  languages.t('label.authorities_coming_soon_title'),
+                  languages.t('label.authorities_coming_soon_desc'),
+                  [
+                    {
+                      text: languages.t('label.authorities_done'),
+                      onPress: () => {
+                        console.log('Tried to add custom URL data source');
+                      },
+                    },
+                  ],
+                  { cancelable: false },
+                );
               }}>
               <Text style={styles.menuOptionText}>
                 {languages.t('label.authorities_add_url')}
@@ -331,7 +266,6 @@ const styles = StyleSheet.create({
     padding: 20,
     width: '96%',
     alignSelf: 'center',
-    backgroundColor: colors.WHITE,
   },
   row: {
     flex: 1,
@@ -445,15 +379,6 @@ const styles = StyleSheet.create({
     height: 15,
     opacity: 0.5,
     marginTop: 14,
-  },
-  saveIcon: {
-    width: 17,
-    height: 17,
-    opacity: 0.5,
-    marginTop: 14,
-  },
-  textInput: {
-    marginLeft: 10,
   },
 });
 
