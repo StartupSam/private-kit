@@ -1,0 +1,23 @@
+name: Unit test
+
+on:
+  push:
+    branches: [ develop ]
+  pull_request:
+    branches: [ develop ]
+
+jobs:
+  build:
+    # strategy:
+    #   matrix:
+    #     node-version: [12, 13] # TODO
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - run: node --version
+    - run: yarn
+    - run: yarn test
+      env:
+        CI: true
