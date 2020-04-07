@@ -1,289 +1,541 @@
 import React, { Component } from 'react';
 import {
+  AppState,
   SafeAreaView,
   StyleSheet,
-  ScrollView,
   Linking,
   View,
   Text,
-  Alert
+  TouchableOpacity,
+  Dimensions,
+  Image,
+  ScrollView,
+  BackHandler,
+  ImageBackground,
+  StatusBar,
 } from 'react-native';
-
-import colors from "../constants/colors";
-import { WebView } from 'react-native-webview';
-import Button from "../components/Button";
-import NegButton from "../components/NegButton";
-import PosButton from "../components/PosButton";
-import SensButton from "../components/SensButton";
+import {
+  Menu,
+  MenuOptions,
+  MenuOption,
+  MenuTrigger,
+} from 'react-native-popup-menu';
+import BackgroundImage from './../assets/images/launchScreenBackground.png';
+import BackgroundImageAtRisk from './../assets/images/backgroundAtRisk.png';
+import Colors from '../constants/colors';
+import LocationServices from '../services/LocationService';
+import BroadcastingServices from '../services/BroadcastingService';
 import BackgroundGeolocation from '@mauron85/react-native-background-geolocation';
+import PushNotification from 'react-native-push-notification';
+import exportImage from './../assets/images/export.png';
+import ButtonWrapper from '../components/ButtonWrapper';
+import { isPlatformiOS } from './../Util';
+import Pulse from 'react-native-pulse';
+import {
+  check,
+  PERMISSIONS,
+  RESULTS,
+  openSettings,
+} from 'react-native-permissions';
 
-import {GetStoreData, SetStoreData} from '../helpers/General';
+import { IntersectSet } from '../helpers/Intersect';
+import { GetStoreData, SetStoreData } from '../helpers/General';
+import languages from '../locales/languages';
+
+import { SvgXml } from 'react-native-svg';
+import StateAtRisk from './../assets/svgs/stateAtRisk';
+import StateNoContact from './../assets/svgs/stateNoContact';
+import StateUnknown from './../assets/svgs/stateUnknown';
+import SettingsGear from './../assets/svgs/settingsGear';
+import fontFamily from '../constants/fonts';
+
+const StateEnum = {
+  UNKNOWN: 0,
+  AT_RISK: 1,
+  NO_CONTACT: 2,
+};
+
+const StateIcon = ({ title, status, size, ...props }) => {
+  let icon;
+  switch (status) {
+    case StateEnum.UNKNOWN:
+      icon = StateUnknown;
+      break;
+    case StateEnum.AT_RISK:
+      icon = StateAtRisk;
+      break;
+    case StateEnum.NO_CONTACT:
+      icon = StateNoContact;
+      break;
+  }
+  return (
+    <SvgXml xml={icon} width={size ? size : 80} height={size ? size : 80} />
+  );
+};
+
+const width = Dimensions.get('window').width;
+const height = Dimensions.get('window').height;
 
 class LocationTracking extends Component {
-    constructor(props) {
-        super(props);
+  constructor(props) {
+    super(props);
+
+    this.state = {
+      appState: AppState.currentState,
+      timer_intersect: null,
+      isLogging: '',
+      currentState: StateEnum.NO_CONTACT,
+    };
+    try {
+      this.checkCurrentState();
+    } catch (e) {
+      // statements
+      console.log(e);
     }
-    componentDidMount() {
-        BackgroundGeolocation.configure({
-        desiredAccuracy: BackgroundGeolocation.HIGH_ACCURACY,
-        stationaryRadius: 50,
-        distanceFilter: 50,
-        notificationTitle: 'PrivateKit Enabled',
-        notificationText: 'PrivateKit is recording path information on this device.',
-        debug: false,
-        startOnBoot: false,
-        stopOnTerminate: true,
-        locationProvider: BackgroundGeolocation.ACTIVITY_PROVIDER,
-        interval: 20000,
-        fastestInterval: 60000*5,         // Time (in milliseconds) between location information polls.  E.g. 60000*5 = 5 minutes
-        activitiesInterval: 20000,
-        stopOnStillActivity: false,
-        postTemplate: {
-            lat: '@latitude',
-            lon: '@longitude',
-            foo: 'bar' // you can also add your own properties
+  }
+
+  /*  Check current state
+        1) determine if user has correct location permissions
+        2) check if they are at risk -> checkIfUserAtRisk()
+        3) set state accordingly */
+  checkCurrentState() {
+    // NEED TO TEST ON ANDROID
+    let locationPermission;
+    if (isPlatformiOS()) {
+      locationPermission = PERMISSIONS.IOS.LOCATION_ALWAYS;
+    } else {
+      locationPermission = PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION;
+    }
+    let locationDisabled = true;
+    check(locationPermission)
+      .then(result => {
+        switch (result) {
+          case RESULTS.GRANTED:
+            this.checkIfUserAtRisk();
+            return;
+          case RESULTS.UNAVAILABLE:
+          case RESULTS.BLOCKED:
+            console.log('NO LOCATION');
+            this.setState({ currentState: StateEnum.UNKNOWN });
         }
-        });
+      })
+      .catch(error => {
+        console.log('error checking location: ' + error);
+      });
+  }
 
-        BackgroundGeolocation.on('location', (location) => {
-            // handle your locations here
-            /* SAMPLE OF LOCATION DATA OBJECT
-                {
-                  "accuracy": 20, "altitude": 5, "id": 114, "isFromMockProvider": false,
-                  "latitude": 37.4219983, "locationProvider": 1, "longitude": -122.084,
-                  "mockLocationsEnabled": false, "provider": "fused", "speed": 0,
-                  "time": 1583696413000
-                }
-            */
+  checkIfUserAtRisk() {
+    // already set on 12h timer, but run when this screen opens too
+    this.intersect_tick();
 
-            GetStoreData('LOCATION_DATA')
-            .then(locationArray => {
-                var locationData;
+    GetStoreData('CROSSED_PATHS').then(dayBin => {
+      if (dayBin === null) {
+        console.log("Can't find crossed paths");
+        this.setState({ currentState: StateEnum.NO_CONTACT });
+      } else {
+        console.log('Found crossed paths');
+        this.setState({ currentState: StateEnum.AT_RISK });
+        // dayBinParsed = JSON.parse(dayBin);
+      }
+    });
+  }
 
-                if (locationArray !== null) {
-                  locationData = JSON.parse(locationArray);
-                } else {
-                  locationData = [];
-                }
-
-                locationData.push(location);
-                SetStoreData('LOCATION_DATA', locationData);
-            });
-
-            // to perform long running operation on iOS
-            // you need to create background task
-            BackgroundGeolocation.startTask(taskKey => {
-                // execute long running task
-                // eg. ajax post location
-                // IMPORTANT: task has to be ended by endTask
-                BackgroundGeolocation.endTask(taskKey);
-            });
-        });
-
-        BackgroundGeolocation.on('stationary', (stationaryLocation) => {
-            // handle stationary locations here
-            // Actions.sendLocation(stationaryLocation);
-            console.log('[INFO] stationaryLocation:', stationaryLocation);
-        });
-
-        BackgroundGeolocation.on('error', (error) => {
-        console.log('[ERROR] BackgroundGeolocation error:', error);
-        });
-
-        BackgroundGeolocation.on('start', () => {
-        console.log('[INFO] BackgroundGeolocation service has been started');
-        });
-
-        BackgroundGeolocation.on('stop', () => {
-        console.log('[INFO] BackgroundGeolocation service has been stopped');
-        });
-
-        BackgroundGeolocation.on('authorization', (status) => {
-        console.log('[INFO] BackgroundGeolocation authorization status: ' + status);
-        if (status !== BackgroundGeolocation.AUTHORIZED) {
-            // we need to set delay or otherwise alert may not be shown
-            setTimeout(() =>
-            Alert.alert('App requires location tracking permission', 'Would you like to open app settings?', [
-                { text: 'Yes', onPress: () => BackgroundGeolocation.showAppSettings() },
-                { text: 'No', onPress: () => console.log('No Pressed'), style: 'cancel' }
-            ]), 1000);
+  componentDidMount() {
+    AppState.addEventListener('change', this._handleAppStateChange);
+    BackHandler.addEventListener('hardwareBackPress', this.handleBackPress);
+    GetStoreData('PARTICIPATE')
+      .then(isParticipating => {
+        if (isParticipating === 'true') {
+          this.setState({
+            isLogging: true,
+          });
+          this.willParticipate();
+        } else {
+          this.setState({
+            isLogging: false,
+          });
         }
-        });
+      })
+      .catch(error => console.log(error));
 
-        BackgroundGeolocation.on('background', () => {
-        console.log('[INFO] App is in background');
-        });
+    let timer_intersect = setInterval(this.intersect_tick, 1000 * 60 * 60 * 12); // once every 12 hours
+    // DEBUG:  1000 * 10); // once every 10 seconds
 
-        BackgroundGeolocation.on('foreground', () => {
-        console.log('[INFO] App is in foreground');
-        });
+    this.setState({
+      timer_intersect,
+    });
+  }
 
-        BackgroundGeolocation.on('abort_requested', () => {
-        console.log('[INFO] Server responded with 285 Updates Not Required');
+  findNewAuthorities() {
+    // TODO: This should pull down the Healtcare Authorities list (see Settings.js)
+    // Then it should look at the GPS extent box of each authority and (if any
+    // of the GPS coordinates change) pop-up a notification that is basically:
+    //    There is a new "Healthcare Authority" for an area where you have
+    //    been.
+    // Tapping that notification asks if they want to Add that Healthcare Authority
+    // under the Settings screen.
+  }
 
-        // Here we can decide whether we want stop the updates or not.
-        // If you've configured the server to return 285, then it means the server does not require further update.
-        // So the normal thing to do here would be to `BackgroundGeolocation.stop()`.
-        // But you might be counting on it to receive location updates in the UI, so you could just reconfigure and set `url` to null.
-        });
+  intersect_tick = () => {
+    // This function is called once every 12 hours.  It should do several things:
 
-        BackgroundGeolocation.on('http_authorization', () => {
-        console.log('[INFO] App needs to authorize the http requests');
-        });
+    this.findNewAuthorities();
 
-        BackgroundGeolocation.checkStatus(status => {
-        console.log('[INFO] BackgroundGeolocation service is running', status.isRunning);
-        console.log('[INFO] BackgroundGeolocation services enabled', status.locationServicesEnabled);
-        console.log('[INFO] BackgroundGeolocation auth status: ' + status.authorization);
-
-        // you don't need to check status before start (this is just the example)
-        if (!status.isRunning) {
-            BackgroundGeolocation.start(); //triggers start on start event
+    // Get the user's health authorities
+    GetStoreData('HEALTH_AUTHORITIES')
+      .then(authority_list => {
+        if (!authority_list) {
+          // DEBUG: Force a test list
+          // authority_list = [
+          //  {
+          //    name: 'Platte County Health',
+          //    url:
+          //      'https://raw.githack.com/tripleblindmarket/safe-places/develop/examples/safe-paths.json',
+          //  },
+          //];
+          return;
         }
+
+        let name_news = [];
+
+        if (authority_list) {
+          // Pull down data from all the registered health authorities
+          for (let authority of authority_list) {
+            fetch(authority.url)
+              .then(response => response.json())
+              .then(responseJson => {
+                // Example response =
+                // { "authority_name":  "Steve's Fake Testing Organization",
+                //   "publish_date_utc": "1584924583",
+                //   "info_website": "https://www.who.int/emergencies/diseases/novel-coronavirus-2019",
+                //   "concern_points":
+                //    [
+                //      { "time": 123, "latitude": 12.34, "longitude": 12.34},
+                //      { "time": 456, "latitude": 12.34, "longitude": 12.34}
+                //    ]
+                // }
+
+                // Update cache of info about the authority
+                // TODO: Add an "info_newsflash" UTC timestamp and popup a
+                //       notification if that changes, i.e. if there is a newsflash?
+                name_news.push({
+                  name: responseJson.authority_name,
+                  news_url: responseJson.info_website,
+                });
+
+                // TODO: Look at "publish_date_utc".  We should notify users if
+                //       their authority is no longer functioning.)
+
+                IntersectSet(responseJson.concern_points, dayBin => {
+                  console.log('asasasas');
+                  if (dayBin !== null) {
+                    PushNotification.localNotification({
+                      title: languages.t('label.push_at_risk_title'),
+                      message: languages.t('label.push_at_risk_message'),
+                    });
+                  }
+                });
+              });
+
+            SetStoreData('AUTHORITY_NEWS', name_news)
+              .then(() => {
+                // TODO: Anything after this saves?  Background caching of
+                //       news to make it snappy?  Could be a problem in some
+                //       locales with high data costs.
+              })
+              .catch(error =>
+                console.log('Failed to save authority/news URL list'),
+              );
+          }
+        } else {
+          console.log('No authority list');
+          return;
+        }
+      })
+      .catch(error => console.log('Failed to load authority list', error));
+  };
+
+  componentWillUnmount() {
+    AppState.removeEventListener('change', this._handleAppStateChange);
+    clearInterval(this.state.timer_intersect);
+    BackHandler.removeEventListener('hardwareBackPress', this.handleBackPress);
+  }
+
+  // need to check state again if new foreground event
+  // e.g. if user changed location permission
+  _handleAppStateChange = nextAppState => {
+    if (
+      this.state.appState.match(/inactive|background/) &&
+      nextAppState === 'active'
+    ) {
+      console.log('checkIfLocationDisabled');
+      this.checkCurrentState();
+    }
+    this.setState({ appState: nextAppState });
+  };
+
+  handleBackPress = () => {
+    BackHandler.exitApp(); // works best when the goBack is async
+    return true;
+  };
+
+  export() {
+    this.props.navigation.navigate('ExportScreen', {});
+  }
+
+  import() {
+    this.props.navigation.navigate('ImportScreen', {});
+  }
+
+  overlap() {
+    this.props.navigation.navigate('OverlapScreen', {});
+  }
+
+  willParticipate = () => {
+    SetStoreData('PARTICIPATE', 'true').then(() => {
+      LocationServices.start();
+      BroadcastingServices.start();
+    });
+
+    // Check and see if they actually authorized in the system dialog.
+    // If not, stop services and set the state to !isLogging
+    // Fixes tripleblindmarket/private-kit#129
+    BackgroundGeolocation.checkStatus(({ authorization }) => {
+      if (authorization === BackgroundGeolocation.AUTHORIZED) {
+        this.setState({
+          isLogging: true,
         });
+      } else if (authorization === BackgroundGeolocation.NOT_AUTHORIZED) {
+        LocationServices.stop(this.props.navigation);
+        BroadcastingServices.stop(this.props.navigation);
+        this.setState({
+          isLogging: false,
+        });
+      }
+    });
+  };
 
-        // you can also just start without checking for status
-        // BackgroundGeolocation.start();
+  news() {
+    this.props.navigation.navigate('NewsScreen', {});
+  }
+
+  licenses() {
+    this.props.navigation.navigate('LicensesScreen', {});
+  }
+
+  settings() {
+    this.props.navigation.navigate('SettingsScreen', {});
+  }
+
+  notifications() {
+    this.props.navigation.navigate('NotificationScreen', {});
+  }
+
+  setOptOut = () => {
+    LocationServices.stop(this.props.navigation);
+    BroadcastingServices.stop(this.props.navigation);
+    this.setState({
+      isLogging: false,
+    });
+  };
+
+  getBackground() {
+    if (this.state.currentState === StateEnum.AT_RISK) {
+      return BackgroundImageAtRisk;
     }
+    return BackgroundImage;
+  }
 
-    componentWillUnmount() {
-        // unregister all event listeners
-        BackgroundGeolocation.removeAllListeners();
+  getSettings() {
+    return (
+      <TouchableOpacity
+        style={styles.settingsContainer}
+        onPress={() => {
+          this.props.navigation.navigate('SettingsScreen');
+          // THIS IS FOR TESTING - DELETE LATER
+          // switch (this.state.currentState) {
+          //   case StateEnum.NO_CONTACT:
+          //     this.setState({ isLogging: '', currentState: StateEnum.AT_RISK });
+          //     break;
+          //   case StateEnum.AT_RISK:
+          //     this.setState({ isLogging: '', currentState: StateEnum.UNKNOWN });
+          //     break;
+          //   case StateEnum.UNKNOWN:
+          //     this.setState({
+          //       isLogging: '',
+          //       currentState: StateEnum.NO_CONTACT,
+          //     });
+          //     break;
+          // }
+        }}>
+        <Image resizeMode={'contain'} />
+        <SvgXml
+          style={styles.stateIcon}
+          xml={SettingsGear}
+          width={32}
+          height={32}
+        />
+      </TouchableOpacity>
+    );
+  }
+
+  getPulseIfNeeded() {
+    if (this.state.currentState == StateEnum.NO_CONTACT) {
+      return (
+        <View style={styles.pulseContainer}>
+          <Pulse
+            image={{ exportImage }}
+            color={Colors.PULSE_WHITE}
+            numPulses={3}
+            diameter={400}
+            speed={20}
+            duration={2000}
+          />
+          <StateIcon size={height} status={this.state.currentState} />
+        </View>
+      );
     }
+    return (
+      <View style={styles.pulseContainer}>
+        <StateIcon size={height} status={this.state.currentState} />
+      </View>
+    );
+  }
 
-    export() {
-        this.props.navigation.navigate('ExportScreen', {})
+  getMainText() {
+    switch (this.state.currentState) {
+      case StateEnum.NO_CONTACT:
+        return 'label.home_no_contact_header';
+      case StateEnum.AT_RISK:
+        return 'label.home_at_risk_header';
+      case StateEnum.UNKNOWN:
+        return 'label.home_unknown_header';
     }
+  }
 
-    import() {
-        this.props.navigation.navigate('ImportScreen', {})
+  getSubText() {
+    switch (this.state.currentState) {
+      case StateEnum.NO_CONTACT:
+        return 'label.home_no_contact_subtext';
+      case StateEnum.AT_RISK:
+        return 'label.home_at_risk_subtext';
+      case StateEnum.UNKNOWN:
+        return 'label.home_unknown_subtext';
     }
+  }
 
-    news() {
-        this.props.navigation.navigate('NewsScreen', {})
+  getCTAIfNeeded() {
+    let buttonLabel;
+    let buttonFunction;
+    if (this.state.currentState === StateEnum.NO_CONTACT) {
+      // TMP HACK FOR MI
+      // buttonLabel = 'label.home_MASSIVE_HACK';
+      // buttonFunction = () => {
+      //   this.props.navigation.navigate('MapLocation');
+      // };
+      return;
+    } else if (this.state.currentState === StateEnum.AT_RISK) {
+      buttonLabel = 'label.home_next_steps';
+      buttonFunction = () => {
+        this.props.navigation.navigate('NotificationScreen');
+      };
+    } else if (this.state.currentState === StateEnum.UNKNOWN) {
+      buttonLabel = 'label.home_enable_location';
+      buttonFunction = () => {
+        openSettings();
+      };
     }
+    return (
+      <View style={styles.buttonContainer}>
+        <ButtonWrapper
+          title={languages.t(buttonLabel)}
+          onPress={() => {
+            buttonFunction();
+          }}
+          buttonColor={Colors.VIOLET}
+          bgColor={Colors.WHITE}
+        />
+      </View>
+    );
+  }
 
-    optOut() {
-      BackgroundGeolocation.removeAllListeners();
-      SetStoreData('PARTICIPATE', 'false').then(() =>
-        this.props.navigation.navigate('WelcomeScreen', {})
-      )
-    }
-
-/*
-                        <View>
-                      <Text style={styles.sectionDescription, {fontSize: 18, marginLeft: 5, marginTop: 10}}>Latest News:</Text>
-                    </View>
-
-                    <View style={styles.containerWebview } >
-                        <WebView
-                            source={{ uri: 'https://privatekit.mit.edu' }}
-                            style={{  }}
-                        />
-                    </View>
-*/
-
-    render() {
-        return (
-            <SafeAreaView style={styles.container} >
-
-                <View style={styles.main}>
-                    <View style={styles.topView}>
-                        <View style={styles.intro} >
-
-                            <Text style={styles.headerTitle}>Private Kit</Text>
-                            <Text style={styles.subHeaderTitle}>(Active)</Text>
-
-                            <Text style={styles.sectionDescription}>Private Kit is your personal vault that nobody else can access.</Text>
-                            <Text style={styles.sectionDescription}>It is currently logging your location privately every five minutes. Your location information will NOT leave your phone.</Text>
-
-                        </View>
-                    </View>
-
-                    <View style={styles.block}>
-                        <NegButton title={"Stop Recording Location"} onPress={() => this.optOut()} />
-                    </View>
-
-                    <View style={styles.block}>
-                        <PosButton title={"News"} onPress={() => this.news()} />
-                    </View>
-
-                    <View style={styles.block}>
-                        <SensButton title={"Import"} onPress={() => this.import()} />
-                    </View>
-
-                    <View style={styles.block}>
-                        <SensButton title={"Export"} onPress={() => this.export()} />
-                    </View>
-
-                </View>
-
-                <View style={styles.footer}>
-                    <Text style={styles.sectionDescription, { textAlign: 'center', paddingTop: 15 }}>For more information visit the Private Kit hompage:</Text>
-                    <Text style={styles.sectionDescription, { color: 'blue', textAlign: 'center' }} onPress={() => Linking.openURL('https://privatekit.mit.edu')}>privatekit.mit.edu</Text>
-                </View>
-            </SafeAreaView>
-        )
-    }
+  render() {
+    return (
+      <ImageBackground
+        source={this.getBackground()}
+        style={styles.backgroundImage}>
+        <StatusBar
+          barStyle='light-content'
+          backgroundColor='transparent'
+          translucent={true}
+        />
+        {this.getPulseIfNeeded()}
+        <View style={styles.mainContainer}>
+          <View style={styles.contentContainer}>
+            <Text style={styles.mainText}>
+              {languages.t(this.getMainText())}
+            </Text>
+            <Text style={styles.subheaderText}>
+              {languages.t(this.getSubText())}
+            </Text>
+            {this.getCTAIfNeeded()}
+          </View>
+        </View>
+        {this.getSettings()}
+      </ImageBackground>
+    );
+  }
 }
 
 const styles = StyleSheet.create({
-    // Container covers the entire screen
-    container: {
-        flex: 1,
-        flexDirection: 'column',
-        justifyContent: 'center',
-        alignItems: 'center',
-        color: colors.PRIMARY_TEXT,
-        backgroundColor: colors.APP_BACKGROUND,
-    },
-    headerTitle: {
-        textAlign: 'center',
-        fontWeight: "bold",
-        fontSize: 38,
-        padding: 0
-    },
-    subHeaderTitle: {
-        textAlign: 'center',
-        fontWeight: "bold",
-        fontSize: 22,
-        padding: 5
-    },
-    main: {
-        flex: 1,
-        flexDirection: 'column',
-        justifyContent: 'center',
-        alignItems: 'center',
-        width: "80%"
-    },
-    block: {
-      margin: 20,
-      width: "100%"
-    },
-    topView: {
-        flex: 1,
-    },
-    footer: {
-        textAlign: 'center',
-        fontSize: 12,
-        fontWeight: '600',
-        padding: 4,
-        paddingBottom: 10
-    },
-    intro: {
-        flex: 1,
-        flexDirection: 'column',
-        justifyContent: 'center',
-        alignItems: 'stretch',
-    },
-    sectionDescription: {
-      fontSize: 18,
-      lineHeight: 24,
-      fontWeight: '400',
-      marginTop: 20,
-      marginLeft: 10,
-      marginRight: 10
-    }
-  });
+  backgroundImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+    flex: 1,
+  },
+  mainContainer: {
+    top: '50%',
+    flex: 1,
+  },
+  contentContainer: {
+    width: width * 0.6,
+    flex: 1,
+    alignSelf: 'center',
+  },
+  settingsContainer: {
+    position: 'absolute',
+    top: 0,
+    marginTop: '14%',
+    marginRight: '5%',
+    alignSelf: 'flex-end',
+  },
+  buttonContainer: {
+    top: '7%',
+  },
+  pulseContainer: {
+    position: 'absolute',
+    resizeMode: 'contain',
+    top: '-13%',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  mainText: {
+    textAlign: 'center',
+    lineHeight: 34,
+    color: Colors.WHITE,
+    fontSize: 26,
+    fontFamily: fontFamily.primaryMedium,
+  },
+  subheaderText: {
+    marginTop: '5%',
+    textAlign: 'center',
+    lineHeight: 24.5,
+    color: Colors.WHITE,
+    fontSize: 18,
+    fontFamily: fontFamily.primaryRegular,
+  },
+});
 
 export default LocationTracking;
